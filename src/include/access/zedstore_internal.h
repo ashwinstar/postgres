@@ -407,10 +407,6 @@ typedef struct ZSBtreeScan
 	Relation	rel;
 	AttrNumber	attno;
 	TupleDesc   tupledesc;
-	int16		attlen;
-	bool		attbyval;
-	bool        atthasmissing;
-	char		attalign;
 
 	/*
 	 * memory context that should be used for any allocations that go with the scan,
@@ -448,6 +444,12 @@ typedef struct ZSBtreeScan
 	bool		array_isnull;
 
 } ZSBtreeScan;
+
+static inline Form_pg_attribute
+ZSBtreeScanGetAttInfo(ZSBtreeScan *scan)
+{
+	return TupleDescAttr(scan->tupledesc, scan->attno - 1);
+}
 
 /* prototypes for functions in zedstore_btree.c */
 extern void zsbt_multi_insert(Relation rel, AttrNumber attno,
