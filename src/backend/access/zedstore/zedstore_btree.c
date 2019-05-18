@@ -858,6 +858,51 @@ zsbt_delete(Relation rel, AttrNumber attno, zstid tid,
 	return TM_Ok;
 }
 
+void
+zsbt_find_latest_tid(Relation rel, zstid *tid, Snapshot snapshot)
+{
+	ZSUndoRecPtr recent_oldest_undo = zsundo_get_oldest_undo_ptr(rel);
+	ZSSingleBtreeItem *item;
+	TM_Result	result;
+	bool		keep_old_undo_ptr = true;
+	TM_FailureData tmfd;
+	Buffer		buf;
+	/* Just using meta attribute, we can follow the update chain */
+	AttrNumber attno = ZS_META_ATTRIBUTE_NUM;
+	zstid curr_tid = *tid;
+
+	for(;;)
+	{
+		zstid       next_tid = InvalidZSTid;
+		if (curr_tid == InvalidZSTid)
+			break;
+
+		/* Find the item */
+		item = zsbt_fetch(rel, attno, &recent_oldest_undo, curr_tid, &buf);
+		if (item == NULL)
+			break;
+		UnlockReleaseBuffer(buf);
+
+		if (snapshot)
+		{
+			/*
+			 * FIXME: should replace zs_SatisfiesUpdate() with
+			 * zs_SatisfiesVisibility(). Need to modify
+			 * zs_SatisfiesVisibility() to return the new_tid value incase of
+			 * update.
+			 */
+			result = zs_SatisfiesUpdate(rel, snapshot, recent_oldest_undo,
+										(ZSBtreeItem *) item, LockTupleExclusive,
+										&keep_old_undo_ptr, &tmfd, &next_tid);
+			if (result != TM_Ok)
+				break;
+
+			*tid = curr_tid;
+			curr_tid = next_tid;
+		}
+	}
+}
+
 /*
  * A new TID is allocated, as we see best and returned to the caller. This
  * function is only called for META attribute btree. Data columns will use the
