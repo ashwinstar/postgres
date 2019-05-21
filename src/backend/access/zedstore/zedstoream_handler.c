@@ -141,6 +141,8 @@ zedstoream_fetch_row_version(Relation rel,
 		PredicateLockTID(rel, tid_p, snapshot);
 	}
 	ExecMaterializeSlot(slot);
+	slot->tts_tableOid = RelationGetRelid(rel);
+	slot->tts_tid = *tid_p;
 
 	zedstoream_end_index_fetch(fetcher);
 
@@ -502,6 +504,10 @@ zedstoream_lock_tuple(Relation relation, ItemPointer tid_p, Snapshot snapshot,
 	bool		have_tuple_lock = false;
 	zstid		next_tid = tid;
 	SnapshotData SnapshotDirty;
+	bool		locked_something = false;
+
+	slot->tts_tableOid = RelationGetRelid(relation);
+	slot->tts_tid = *tid_p;
 
 	tmfd->traversed = false;
 	/*
@@ -520,7 +526,19 @@ retry:
 		 * order to give that case the opportunity to throw a more specific
 		 * error.
 		 */
-		return TM_Invisible;
+		/*
+		 * This can also happen, if we're locking an UPDATE chain for KEY SHARE mode:
+		 * A tuple has been inserted, and then updated, by a different transaction.
+		 * The updating transaction is still in progress. We can lock the row
+		 * in KEY SHARE mode, assuming the key columns were not updated, and we will
+		 * try to lock all the row version, even the still in-progress UPDATEs.
+		 * It's possible that the UPDATE aborts while we're chasing the update chain,
+		 * so that the updated tuple becomes invisible to us. That's OK.
+		 */
+		 if (mode == LockTupleKeyShare && locked_something)
+			 return TM_Ok;
+		 else
+			 return TM_Invisible;
 	}
 	else if (result == TM_Updated ||
 			 (result == TM_SelfModified && tmfd->cmax == cid))
@@ -619,13 +637,28 @@ retry:
 		 */
 		goto retry;
 	}
+	if (result == TM_Ok)
+		locked_something = true;
 
 	/*
 	 * Now that we have successfully marked the tuple as locked, we can
 	 * release the lmgr tuple lock, if we had it.
 	 */
 	if (have_tuple_lock)
+	{
 		UnlockTupleTuplock(relation, tid_p, mode);
+		have_tuple_lock = false;
+	}
+
+	if (mode == LockTupleKeyShare)
+	{
+		/* lock all row versions, if it's a KEY SHARE lock */
+		if (result == TM_Ok && tid != next_tid && next_tid != InvalidZSTid)
+		{
+			tid = next_tid;
+			goto retry;
+		}
+	}
 
 	/* Fetch the tuple, too. */
 	if (!zedstoream_fetch_row_version(relation, tid_p, SnapshotAny, slot))
@@ -872,7 +905,7 @@ retry:
 static const TupleTableSlotOps *
 zedstoream_slot_callbacks(Relation relation)
 {
-	return &TTSOpsVirtual;
+	return &TTSOpsZedstore;
 }
 
 static inline void
@@ -1089,6 +1122,9 @@ zedstoream_getnextslot(TableScanDesc sscan, ScanDirection direction, TupleTableS
 	int			slot_natts = slot->tts_tupleDescriptor->natts;
 	Datum	   *slot_values = slot->tts_values;
 	bool	   *slot_isnull = slot->tts_isnull;
+
+	if (direction != ForwardScanDirection)
+		elog(ERROR, "backward scan not implemented in zedstore");
 
 	zs_initialize_proj_attributes(slot->tts_tupleDescriptor, scan_proj);
 	Assert((scan_proj->num_proj_atts - 1) <= slot_natts);
@@ -2585,21 +2621,19 @@ zedstoream_scan_bitmap_next_block(TableScanDesc sscan,
 	btree_scan.serializable = true;
 	while ((tid = zsbt_scan_next_tid(&btree_scan)) != InvalidZSTid)
 	{
+		ItemPointerData itemptr;
+
 		Assert(ZSTidGetBlockNumber(tid) == tid_blkno);
+
+		ItemPointerSet(&itemptr, tid_blkno, ZSTidGetOffsetNumber(tid));
 
 		if (tbmres->ntuples != -1)
 		{
 			while (ZSTidGetOffsetNumber(tid) > tbmres->offsets[noff] && noff < tbmres->ntuples)
 			{
-				ItemPointerData itemptr;
-
-				ItemPointerSet(&itemptr, tid_blkno, ZSTidGetOffsetNumber(tid));
-
-				/* FIXME: heapam acquires the predicate lock first, and then
-				 * calls CheckForSerializableConflictOut(). We do it in the
-				 * opposite order, because CheckForSerializableConflictOut()
-				 * call as done in zsbt_get_last_tid() already. Does it matter?
-				 * I'm not sure.
+				/*
+				 * Acquire predicate lock on all tuples that we scan, even those that are
+				 * not visible to the snapshot.
 				 */
 				PredicateLockTID(scan->rs_scan.rs_rd, &itemptr, scan->rs_scan.rs_snapshot);
 
@@ -2617,6 +2651,14 @@ zedstoream_scan_bitmap_next_block(TableScanDesc sscan,
 
 		scan->bmscan_tids[ntuples] = tid;
 		ntuples++;
+
+		/* FIXME: heapam acquires the predicate lock first, and then
+		 * calls CheckForSerializableConflictOut(). We do it in the
+		 * opposite order, because CheckForSerializableConflictOut()
+		 * call as done in zsbt_get_last_tid() already. Does it matter?
+		 * I'm not sure.
+		 */
+		PredicateLockTID(scan->rs_scan.rs_rd, &itemptr, scan->rs_scan.rs_snapshot);
 	}
 	zsbt_end_scan(&btree_scan);
 
