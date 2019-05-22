@@ -321,7 +321,7 @@ zsundo_vacuum(Relation rel, VacuumParams *params, BufferAccessStrategy bstrategy
 	IndexBulkDeleteResult **indstats;
 	BlockNumber	nblocks;
 
-	nblocks = RelationGetNumberOfBlocks(rel);
+	nblocks = ZSRelationGetNumberOfPhysicalBlocks(rel);
 	if (nblocks == 0)
 		return;		/* empty table */
 
@@ -857,7 +857,7 @@ zsundo_get_oldest_undo_ptr(Relation rel)
 	BlockNumber oldest_undopage;
 	List	   *unused_pages = NIL;
 
-	if (RelationGetNumberOfBlocks(rel) == 0)
+	if (ZSRelationGetNumberOfPhysicalBlocks(rel) == 0)
 	{
 		memset(&result, 0, sizeof(ZSUndoRecPtr));
 		return result;

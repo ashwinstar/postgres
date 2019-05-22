@@ -119,7 +119,7 @@ zsmeta_get_root_for_attribute(Relation rel, AttrNumber attno, bool readonly)
 	BlockNumber	rootblk;
 	Page        page;
 
-	if (RelationGetNumberOfBlocks(rel) == 0)
+	if (ZSRelationGetNumberOfPhysicalBlocks(rel) == 0)
 	{
 		if (readonly)
 			return InvalidBlockNumber;

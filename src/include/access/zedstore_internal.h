@@ -624,4 +624,6 @@ extern void zspage_delete_page(Relation rel, Buffer buf);
 extern zs_split_stack *zs_new_split_stack_entry(Buffer buf, Page page);
 extern void zs_apply_split_changes(Relation rel, zs_split_stack *stack);
 
+extern uint64 ZSRelationGetNumberOfPhysicalBlocks(Relation rel);
+
 #endif							/* ZEDSTORE_INTERNAL_H */

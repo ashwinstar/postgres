@@ -339,7 +339,7 @@ pg_zs_btree_pages(PG_FUNCTION_ARGS)
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("cannot access temporary tables of other sessions")));
 
-	nblocks = RelationGetNumberOfBlocks(rel);
+	nblocks = ZSRelationGetNumberOfPhysicalBlocks(rel);
 
 	/* scan all blocks in physical order */
 	for (blkno = 1; blkno < nblocks; blkno++)

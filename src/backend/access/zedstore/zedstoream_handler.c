@@ -2499,17 +2499,22 @@ zedstoream_scan_analyze_next_tuple(TableScanDesc sscan, TransactionId OldestXmin
  */
 
 /*
- * FIXME: Implement this function as best for zedstore. The return value is
- * for example leveraged by analyze to find which blocks to sample.
+ * Currently, fetches max tid from btree. Gets block number corresponding to
+ * that tid. Returns blocknum * BLCKSZ as relation size for zedstore.
+ *
+ * FIXME: Implement this function as best for zedstore. The return
+ * value is for example leveraged by analyze to find which blocks to sample.
  */
 static uint64
 zedstoream_relation_size(Relation rel, ForkNumber forkNumber)
 {
-	uint64		nblocks = 0;
+	uint64 nblocks;
+	zstid ztid;
+	ztid = zsbt_get_last_tid(rel, ZS_META_ATTRIBUTE_NUM);
 
-	/* Open it at the smgr level if not already done */
-	RelationOpenSmgr(rel);
-	nblocks = smgrnblocks(rel->rd_smgr, MAIN_FORKNUM);
+	/* get block number corresponding to max tid */
+	nblocks = ZSTidGetBlockNumber(ztid) + 1;
+
 	return nblocks * BLCKSZ;
 }
 
@@ -3157,4 +3162,15 @@ zsbt_fill_missing_attribute_value(ZSBtreeScan *scan, Datum *datum, bool *isnull)
 				*datum = zs_datumCopy(attrmiss[attno].am_value, attr->attbyval, attr->attlen);
 		}
 	}
+}
+
+/* returns number of physical on-disk blocks */
+uint64
+ZSRelationGetNumberOfPhysicalBlocks(Relation rel)
+{
+	uint64 nblocks = 0;
+	/* Open it at the smgr level if not already done */
+	RelationOpenSmgr(rel);
+	nblocks = smgrnblocks(rel->rd_smgr, MAIN_FORKNUM);
+	return nblocks * BLCKSZ;
 }
