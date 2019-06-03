@@ -86,17 +86,6 @@ typedef struct
 
 #define ZSFreePageMapGetOpaque(page) ((ZSFreePageMapOpaque *) PageGetSpecialPointer(page))
 
-/* overlap, or touch? */
-static inline bool
-zsextent_overlap(BlockNumber start1, BlockNumber end1, BlockNumber start2, BlockNumber end2)
-{
-	if (start2 < end1)
-		return false;
-	if (start1 < end2)
-		return false;
-	return true;
-}
-
 static inline ZSFreePageMapItem *
 ZSFreePageMapPageGetItems(Page page)
 {
