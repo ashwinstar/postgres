@@ -1834,31 +1834,8 @@ zedstoream_index_build_range_scan(Relation baseRelation,
 		if (start_blockno != 0 || numblocks != InvalidBlockNumber)
 		{
 			ZedStoreDesc zscan = (ZedStoreDesc) scan;
-			ZedStoreProjectData *zscan_proj = &zscan->proj_data;
-
 			zscan->cur_range_start = ZSTidFromBlkOff(start_blockno, 1);
 			zscan->cur_range_end = ZSTidFromBlkOff(numblocks, 1);
-
-			/* FIXME: when can 'num_proj_atts' be 0? */
-			if (zscan_proj->num_proj_atts > 0)
-			{
-				zsbt_tid_begin_scan(zscan->rs_scan.rs_rd,
-									zscan->cur_range_start,
-									zscan->cur_range_end,
-									zscan->rs_scan.rs_snapshot,
-									&zscan_proj->btree_scans[0]);
-				for (int i = 1; i < zscan_proj->num_proj_atts; i++)
-				{
-					int			natt = zscan_proj->proj_atts[i];
-
-					zsbt_attr_begin_scan(zscan->rs_scan.rs_rd,
-										 RelationGetDescr(zscan->rs_scan.rs_rd),
-										 natt,
-										 zscan->cur_range_start,
-										 zscan->cur_range_end,
-										 &zscan_proj->btree_scans[i]);
-				}
-			}
 			zscan->state = ZSSCAN_STATE_SCANNING;
 		}
 	}
