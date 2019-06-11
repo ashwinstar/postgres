@@ -71,7 +71,6 @@ zsbt_tid_begin_scan(Relation rel, zstid starttid,
 	scan->lastoff = InvalidOffsetNumber;
 	scan->nexttid = starttid;
 	scan->endtid = endtid;
-	scan->nonvacuumable_status = ZSNV_NONE;
 	memset(&scan->recent_oldest_undo, 0, sizeof(scan->recent_oldest_undo));
 	memset(&scan->array_iter, 0, sizeof(scan->array_iter));
 	scan->array_iter.context = CurrentMemoryContext;
@@ -177,29 +176,17 @@ zsbt_tid_scan_extract_array(ZSTidTreeScan *scan, ZSTidArrayItem *aitem)
 	slots_visible[ZSBT_OLD_UNDO_SLOT] = true;
 	slots_visible[ZSBT_DEAD_UNDO_SLOT] = false;
 
-	scan->undoslot_xmin[ZSBT_OLD_UNDO_SLOT] = InvalidTransactionId;
-	scan->undoslot_xmax[ZSBT_OLD_UNDO_SLOT] = InvalidTransactionId;
-	scan->undoslot_speculativeToken[ZSBT_OLD_UNDO_SLOT] = INVALID_SPECULATIVE_TOKEN;
+	scan->array_iter.undoslot_visibility[ZSBT_OLD_UNDO_SLOT] = InvalidUndoSlotVisibility;
 
 	for (int i = 2; i < aitem->t_num_undo_slots; i++)
 	{
 		ZSUndoRecPtr undoptr = scan->array_iter.undoslots[i];
 		TransactionId obsoleting_xid;
 
-		slots_visible[i] = zs_SatisfiesVisibility(scan, undoptr, &obsoleting_xid, NULL);
+		slots_visible[i] = zs_SatisfiesVisibility(scan, undoptr, &obsoleting_xid,
+												  NULL, &scan->array_iter.undoslot_visibility[ZSBT_OLD_UNDO_SLOT]);
 		if (!slots_visible[i] && scan->serializable && TransactionIdIsValid(obsoleting_xid))
 			CheckForSerializableConflictOut(scan->rel, obsoleting_xid, scan->snapshot);
-		scan->array_iter.undoslots[i] = undoptr;
-		/*
-		 * Remember the special xmin/xmax/speculativeToken return values on a
-		 * SnapshotDirty.
-		 */
-		if (scan->snapshot->snapshot_type == SNAPSHOT_DIRTY)
-		{
-			scan->undoslot_xmin[i] = scan->snapshot->xmin;
-			scan->undoslot_xmax[i] = scan->snapshot->xmax;
-			scan->undoslot_speculativeToken[i] = scan->snapshot->speculativeToken;
-		}
 	}
 
 	j = 0;
@@ -381,10 +368,11 @@ have_array:
 	if (scan->snapshot->snapshot_type == SNAPSHOT_DIRTY)
 	{
 		int			slotno = scan->array_iter.tid_undoslotnos[scan->array_iter.next_idx];
+		ZSUndoSlotVisibility *visi_info = &scan->array_iter.undoslot_visibility[slotno];
 
-		scan->snapshot->xmin = scan->undoslot_xmin[slotno];
-		scan->snapshot->xmax = scan->undoslot_xmax[slotno];
-		scan->snapshot->speculativeToken = scan->undoslot_speculativeToken[slotno];
+		scan->snapshot->xmin = visi_info->xmin;
+		scan->snapshot->xmax = visi_info->xmax;
+		scan->snapshot->speculativeToken = visi_info->speculativeToken;
 	}
 	scan->nexttid = result + 1;
 	scan->array_iter.next_idx++;
@@ -581,13 +569,14 @@ zsbt_tid_delete(Relation rel, zstid tid,
 			/* FIXME: dummmy scan */
 			ZSTidTreeScan scan;
 			TransactionId obsoleting_xid;
+			ZSUndoSlotVisibility visi_info;
 
 			memset(&scan, 0, sizeof(scan));
 			scan.rel = rel;
 			scan.snapshot = crosscheck;
 			scan.recent_oldest_undo = recent_oldest_undo;
 
-			if (!zs_SatisfiesVisibility(&scan, item_undoptr, &obsoleting_xid, NULL))
+			if (!zs_SatisfiesVisibility(&scan, item_undoptr, &obsoleting_xid, NULL, &visi_info))
 			{
 				UnlockReleaseBuffer(buf);
 				/* FIXME: We should fill TM_FailureData *hufd correctly */
@@ -639,6 +628,7 @@ zsbt_find_latest_tid(Relation rel, zstid *tid, Snapshot snapshot)
 			/* FIXME: dummmy scan */
 			ZSTidTreeScan scan;
 			TransactionId obsoleting_xid;
+			ZSUndoSlotVisibility visi_info;
 
 			memset(&scan, 0, sizeof(scan));
 			scan.rel = rel;
@@ -646,7 +636,7 @@ zsbt_find_latest_tid(Relation rel, zstid *tid, Snapshot snapshot)
 			scan.recent_oldest_undo = recent_oldest_undo;
 
 			if (zs_SatisfiesVisibility(&scan, item_undoptr,
-									   &obsoleting_xid, &next_tid))
+									   &obsoleting_xid, &next_tid, &visi_info))
 			{
 				*tid = curr_tid;
 			}
@@ -753,13 +743,14 @@ zsbt_tid_update_lock_old(Relation rel, zstid otid,
 		/* FIXME: dummmy scan */
 		ZSTidTreeScan scan;
 		TransactionId obsoleting_xid;
+		ZSUndoSlotVisibility visi_info;
 
 		memset(&scan, 0, sizeof(scan));
 		scan.rel = rel;
 		scan.snapshot = crosscheck;
 		scan.recent_oldest_undo = recent_oldest_undo;
 
-		if (!zs_SatisfiesVisibility(&scan, olditem_undoptr, &obsoleting_xid, NULL))
+		if (!zs_SatisfiesVisibility(&scan, olditem_undoptr, &obsoleting_xid, NULL, &visi_info))
 		{
 			UnlockReleaseBuffer(buf);
 			/* FIXME: We should fill TM_FailureData *hufd correctly */

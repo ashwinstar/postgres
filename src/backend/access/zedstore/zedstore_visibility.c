@@ -275,9 +275,6 @@ fetch_undo_record:
 static bool
 zs_SatisfiesAny(ZSTidTreeScan *scan, ZSUndoRecPtr item_undoptr)
 {
-	scan->xmin = FrozenTransactionId;
-	scan->cmin = InvalidCommandId;
-
 	return true;
 }
 
@@ -315,7 +312,8 @@ xid_is_visible(Snapshot snapshot, TransactionId xid, CommandId cid, bool *aborte
  */
 static bool
 zs_SatisfiesMVCC(ZSTidTreeScan *scan, ZSUndoRecPtr item_undoptr,
-				 TransactionId *obsoleting_xid, zstid *next_tid)
+				 TransactionId *obsoleting_xid, zstid *next_tid,
+				 ZSUndoSlotVisibility *visi_info)
 {
 	Relation	rel = scan->rel;
 	Snapshot	snapshot = scan->snapshot;
@@ -332,8 +330,8 @@ fetch_undo_record:
 	/* If this record is "old", then the record is visible. */
 	if (undo_ptr.counter < recent_oldest_undo.counter)
 	{
-		scan->xmin = FrozenTransactionId;
-		scan->cmin = InvalidCommandId;
+		visi_info->xmin = FrozenTransactionId;
+		visi_info->cmin = InvalidCommandId;
 		return true;
 	}
 
@@ -348,8 +346,8 @@ fetch_undo_record:
 		if (!result && !aborted)
 			*obsoleting_xid = undorec->xid;
 
-		scan->xmin = undorec->xid;
-		scan->cmin = undorec->cid;
+		visi_info->xmin = undorec->xid;
+		visi_info->cmin = undorec->cid;
 		return result;
 	}
 	else if (undorec->type == ZSUNDO_TYPE_TUPLE_LOCK)
@@ -362,10 +360,6 @@ fetch_undo_record:
 	else if (undorec->type == ZSUNDO_TYPE_DELETE ||
 			 undorec->type == ZSUNDO_TYPE_UPDATE)
 	{
-		/* TODO: we don't know the transaction id of the inserting transaction */
-		scan->xmin = InvalidTransactionId;
-		scan->cmin = InvalidCommandId;
-
 		if (undorec->type == ZSUNDO_TYPE_UPDATE)
 		{
 			ZSUndoRec_Update *updaterec = (ZSUndoRec_Update *) undorec;
@@ -399,7 +393,8 @@ fetch_undo_record:
  * Like HeapTupleSatisfiesSelf
  */
 static bool
-zs_SatisfiesSelf(ZSTidTreeScan *scan, ZSUndoRecPtr item_undoptr, zstid *next_tid)
+zs_SatisfiesSelf(ZSTidTreeScan *scan, ZSUndoRecPtr item_undoptr,
+				 zstid *next_tid, ZSUndoSlotVisibility *visi_info)
 {
 	Relation	rel = scan->rel;
 	ZSUndoRecPtr recent_oldest_undo = scan->recent_oldest_undo;
@@ -413,8 +408,8 @@ zs_SatisfiesSelf(ZSTidTreeScan *scan, ZSUndoRecPtr item_undoptr, zstid *next_tid
 fetch_undo_record:
 	if (undo_ptr.counter < recent_oldest_undo.counter)
 	{
-		scan->xmin = FrozenTransactionId;
-		scan->cmin = InvalidCommandId;
+		visi_info->xmin = FrozenTransactionId;
+		visi_info->cmin = InvalidCommandId;
 		return true;
 	}
 
@@ -423,8 +418,8 @@ fetch_undo_record:
 
 	if (undorec->type == ZSUNDO_TYPE_INSERT)
 	{
-		scan->xmin = undorec->xid;
-		scan->cmin = undorec->cid;
+		visi_info->xmin = undorec->xid;
+		visi_info->cmin = undorec->cid;
 
 		/* Inserted tuple */
 		if (TransactionIdIsCurrentTransactionId(undorec->xid))
@@ -456,10 +451,6 @@ fetch_undo_record:
 				*next_tid = updaterec->newtid;
 		}
 
-		/* TODO: we don't know the transaction id of the inserting transaction */
-		scan->xmin = InvalidTransactionId;
-		scan->cmin = InvalidCommandId;
-
 		if (TransactionIdIsCurrentTransactionId(undorec->xid))
 		{
 			/* deleted by me */
@@ -490,7 +481,8 @@ fetch_undo_record:
  * Like HeapTupleSatisfiesDirty
  */
 static bool
-zs_SatisfiesDirty(ZSTidTreeScan *scan, ZSUndoRecPtr item_undoptr, zstid *next_tid)
+zs_SatisfiesDirty(ZSTidTreeScan *scan, ZSUndoRecPtr item_undoptr,
+				  zstid *next_tid, ZSUndoSlotVisibility *visi_info)
 {
 	Relation	rel = scan->rel;
 	Snapshot	snapshot = scan->snapshot;
@@ -508,8 +500,8 @@ zs_SatisfiesDirty(ZSTidTreeScan *scan, ZSUndoRecPtr item_undoptr, zstid *next_ti
 fetch_undo_record:
 	if (undo_ptr.counter < recent_oldest_undo.counter)
 	{
-		scan->xmin = FrozenTransactionId;
-		scan->cmin = InvalidCommandId;
+		visi_info->xmin = FrozenTransactionId;
+		visi_info->cmin = InvalidCommandId;
 		return true;
 	}
 
@@ -521,8 +513,9 @@ fetch_undo_record:
 		ZSUndoRec_Insert *insertrec = (ZSUndoRec_Insert *) undorec;
 		snapshot->speculativeToken = insertrec->speculative_token;
 
-		scan->xmin = undorec->xid;
-		scan->cmin = undorec->cid;
+		/* TODO: for snapshotDirty don't set the values */
+//		visi_info->xmin = undorec->xid;
+//		visi_info->cmin = undorec->cid;
 		
 		/* Inserted tuple */
 		if (TransactionIdIsCurrentTransactionId(undorec->xid))
@@ -530,6 +523,8 @@ fetch_undo_record:
 		else if (TransactionIdIsInProgress(undorec->xid))
 		{
 			snapshot->xmin = undorec->xid;
+			visi_info->xmin = undorec->xid;
+			visi_info->cmin = undorec->cid;
 			return true;
 		}
 		else if (TransactionIdDidCommit(undorec->xid))
@@ -552,10 +547,6 @@ fetch_undo_record:
 	else if (undorec->type == ZSUNDO_TYPE_DELETE ||
 			 undorec->type == ZSUNDO_TYPE_UPDATE)
 	{
-		/* TODO: we don't know the transaction id of the inserting transaction */
-		scan->xmin = InvalidTransactionId;
-		scan->cmin = InvalidCommandId;
-
 		if (undorec->type == ZSUNDO_TYPE_UPDATE)
 		{
 			ZSUndoRec_Update *updaterec = (ZSUndoRec_Update *) undorec;
@@ -572,7 +563,12 @@ fetch_undo_record:
 
 		if (TransactionIdIsInProgress(undorec->xid))
 		{
+			/*
+			 * TODO: not required to set the snapshot's xmax here? As gets
+			 * populated based on visi_info later in snapshot by caller.
+			 */
 			snapshot->xmax = undorec->xid;
+			visi_info->xmax = undorec->xid;
 			return true;
 		}
 
@@ -598,7 +594,8 @@ fetch_undo_record:
  * surely dead to everyone, ie, vacuumable.
  */
 static bool
-zs_SatisfiesNonVacuumable(ZSTidTreeScan *scan, ZSUndoRecPtr item_undoptr)
+zs_SatisfiesNonVacuumable(ZSTidTreeScan *scan, ZSUndoRecPtr item_undoptr,
+						  ZSUndoSlotVisibility *visi_info)
 {
 	Relation	rel = scan->rel;
 	TransactionId OldestXmin = scan->snapshot->xmin;
@@ -616,8 +613,8 @@ fetch_undo_record:
 	/* Is it visible? */
 	if (undo_ptr.counter < recent_oldest_undo.counter)
 	{
-		scan->xmin = FrozenTransactionId;
-		scan->cmin = InvalidCommandId;
+		visi_info->xmin = FrozenTransactionId;
+		visi_info->cmin = InvalidCommandId;
 		return true;
 	}
 
@@ -626,8 +623,8 @@ fetch_undo_record:
 
 	if (undorec->type == ZSUNDO_TYPE_INSERT)
 	{
-		scan->xmin = undorec->xid;
-		scan->cmin = undorec->cid;
+		visi_info->xmin = undorec->xid;
+		visi_info->cmin = undorec->cid;
 
 		/* Inserted tuple */
 		if (TransactionIdIsInProgress(undorec->xid))
@@ -645,10 +642,6 @@ fetch_undo_record:
 		/* deleted or updated-away tuple */
 		ZSUndoRecPtr	prevptr;
 
-		/* TODO: we don't know the transaction id of the inserting transaction */
-		scan->xmin = InvalidTransactionId;
-		scan->cmin = InvalidCommandId;
-
 		if (TransactionIdIsInProgress(undorec->xid))
 			return true;	/* delete-in-progress */
 		else if (TransactionIdDidCommit(undorec->xid))
@@ -659,7 +652,7 @@ fetch_undo_record:
 			 */
 			if (!TransactionIdPrecedes(undorec->xid, OldestXmin))
 			{
-				scan->nonvacuumable_status = ZSNV_RECENTLY_DEAD;
+				visi_info->nonvacuumable_status = ZSNV_RECENTLY_DEAD;
 				return true;
 			}
 
@@ -707,7 +700,8 @@ fetch_undo_record:
  */
 bool
 zs_SatisfiesVisibility(ZSTidTreeScan *scan, ZSUndoRecPtr item_undoptr,
-					   TransactionId *obsoleting_xid, zstid *next_tid)
+					   TransactionId *obsoleting_xid, zstid *next_tid,
+					   ZSUndoSlotVisibility *visi_info)
 {
 	ZSUndoRecPtr undo_ptr;
 
@@ -737,10 +731,10 @@ zs_SatisfiesVisibility(ZSTidTreeScan *scan, ZSUndoRecPtr item_undoptr,
 	switch (scan->snapshot->snapshot_type)
 	{
 		case SNAPSHOT_MVCC:
-			return zs_SatisfiesMVCC(scan, item_undoptr, obsoleting_xid, next_tid);
+			return zs_SatisfiesMVCC(scan, item_undoptr, obsoleting_xid, next_tid, visi_info);
 
 		case SNAPSHOT_SELF:
-			return zs_SatisfiesSelf(scan, item_undoptr, next_tid);
+			return zs_SatisfiesSelf(scan, item_undoptr, next_tid, visi_info);
 
 		case SNAPSHOT_ANY:
 			return zs_SatisfiesAny(scan, item_undoptr);
@@ -750,14 +744,14 @@ zs_SatisfiesVisibility(ZSTidTreeScan *scan, ZSUndoRecPtr item_undoptr,
 			break;
 
 		case SNAPSHOT_DIRTY:
-			return zs_SatisfiesDirty(scan, item_undoptr, next_tid);
+			return zs_SatisfiesDirty(scan, item_undoptr, next_tid, visi_info);
 
 		case SNAPSHOT_HISTORIC_MVCC:
 			elog(ERROR, "SnapshotHistoricMVCC not implemented in zedstore yet");
 			break;
 
 		case SNAPSHOT_NON_VACUUMABLE:
-			return zs_SatisfiesNonVacuumable(scan, item_undoptr);
+			return zs_SatisfiesNonVacuumable(scan, item_undoptr, visi_info);
 	}
 
 	return false;				/* keep compiler quiet */

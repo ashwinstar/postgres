@@ -511,6 +511,23 @@ typedef enum
 	ZSNV_RECENTLY_DEAD	/* tuple is dead, but not deletable yet */
 } ZSNV_Result;
 
+typedef struct ZSUndoSlotVisibility
+{
+	TransactionId xmin;
+	TransactionId xmax;
+	CommandId cmin;
+	uint32		speculativeToken;
+	ZSNV_Result nonvacuumable_status;
+} ZSUndoSlotVisibility;
+
+static const ZSUndoSlotVisibility InvalidUndoSlotVisibility = {
+	.xmin = InvalidTransactionId,
+	.xmax = InvalidTransactionId,
+	.cmin = InvalidCommandId,
+	.speculativeToken = INVALID_SPECULATIVE_TOKEN,
+	.nonvacuumable_status = ZSNV_NONE
+};
+
 typedef struct ZSTidItemIterator
 {
 	int			tids_allocated_size;
@@ -521,6 +538,7 @@ typedef struct ZSTidItemIterator
 	MemoryContext context;
 
 	ZSUndoRecPtr  undoslots[ZSBT_MAX_ITEM_UNDO_SLOTS];
+	ZSUndoSlotVisibility undoslot_visibility[ZSBT_MAX_ITEM_UNDO_SLOTS];
 } ZSTidItemIterator;
 
 /*
@@ -558,20 +576,9 @@ typedef struct ZSTidTreeScan
 	 * array tuple.
 	 */
 	ZSTidItemIterator array_iter;
-	/*
-	 * If 'snapshot' is SnapshotDirty, these are filled for each undo slot in the
-	 * iterator, so that they can be returned to the caller of zsbt_tid_scan_next().
-	 */
-	TransactionId undoslot_xmin[ZSBT_MAX_ITEM_UNDO_SLOTS];
-	TransactionId undoslot_xmax[ZSBT_MAX_ITEM_UNDO_SLOTS];
-	uint32		undoslot_speculativeToken[ZSBT_MAX_ITEM_UNDO_SLOTS];
-
-	/* TODO: These fields should be stored per UNDO pointer slot in ZSTidItemIterator. */
-	ZSNV_Result nonvacuumable_status;
-	TransactionId xmin;
-	CommandId cmin;
-
 } ZSTidTreeScan;
+
+#define ZSTidScanCurUndoSlotNum(scan) ((scan)->array_iter.tid_undoslotnos[(scan)->array_iter.next_idx - 1])
 
 /*
  * Holds the state of an in-progress scan on a zedstore attribute tree.
@@ -830,7 +837,8 @@ extern TM_Result zs_SatisfiesUpdate(Relation rel, Snapshot snapshot,
 									bool *undo_record_needed,
 									TM_FailureData *tmfd, zstid *next_tid);
 extern bool zs_SatisfiesVisibility(ZSTidTreeScan *scan, ZSUndoRecPtr item_undoptr,
-								   TransactionId *obsoleting_xid, zstid *next_tid);
+								   TransactionId *obsoleting_xid, zstid *next_tid,
+								   ZSUndoSlotVisibility *visi_info);
 
 /* prototypes for functions in zedstore_toast.c */
 extern Datum zedstore_toast_datum(Relation rel, AttrNumber attno, Datum value, zstid tid);

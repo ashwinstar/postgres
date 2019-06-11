@@ -1275,9 +1275,14 @@ zedstoream_getnextslot_internal(TableScanDesc sscan, ScanDirection direction,
 		}
 		else
 		{
+			ZSUndoSlotVisibility *visi_info;
 			Assert(scan->state == ZSSCAN_STATE_SCANNING);
-			((ZedstoreTupleTableSlot*)slot)->xmin = scan_proj->tid_scan.xmin;
-			((ZedstoreTupleTableSlot*)slot)->xmin = scan_proj->tid_scan.cmin;
+
+			visi_info = &scan_proj->tid_scan.array_iter.undoslot_visibility[
+				ZSTidScanCurUndoSlotNum(&scan_proj->tid_scan)];
+			((ZedstoreTupleTableSlot*)slot)->xmin = visi_info->xmin;
+			((ZedstoreTupleTableSlot*)slot)->xmin = visi_info->cmin;
+
 			slot->tts_tableOid = RelationGetRelid(scan->rs_scan.rs_rd);
 			slot->tts_tid = ItemPointerFromZSTid(this_tid);
 			slot->tts_nvalid = slot->tts_tupleDescriptor->natts;
@@ -1508,8 +1513,12 @@ zedstoream_fetch_row(ZedStoreIndexFetchData *fetch,
 
 	if (found)
 	{
-		((ZedstoreTupleTableSlot*)slot)->xmin = fetch_proj->tid_scan.xmin;
-		((ZedstoreTupleTableSlot*)slot)->cmin = fetch_proj->tid_scan.cmin;
+		ZSUndoSlotVisibility *visi_info;
+		visi_info = &fetch_proj->tid_scan.array_iter.undoslot_visibility[
+			ZSTidScanCurUndoSlotNum(&fetch_proj->tid_scan)];
+		((ZedstoreTupleTableSlot*)slot)->xmin = visi_info->xmin;
+		((ZedstoreTupleTableSlot*)slot)->xmin = visi_info->cmin;
+
 		slot->tts_tableOid = RelationGetRelid(rel);
 		slot->tts_tid = ItemPointerFromZSTid(tid);
 		slot->tts_nvalid = slot->tts_tupleDescriptor->natts;
@@ -1691,6 +1700,7 @@ static void
 index_build_getnextslot_callback(ZSTidTreeScan *scan, zstid tid, void *state)
 {
 	bool *tupleIsAlive = (bool*)state;
+	ZSUndoSlotVisibility *visi_info = &scan->array_iter.undoslot_visibility[ZSTidScanCurUndoSlotNum(scan)];
 
 	Assert(tid != InvalidZSTid);
 
@@ -1706,14 +1716,14 @@ index_build_getnextslot_callback(ZSTidTreeScan *scan, zstid tid, void *state)
 	 *
 	 * TODO: Heap checks for DELETE_IN_PROGRESS do we need as well?
 	 */
-	if (scan->nonvacuumable_status == ZSNV_RECENTLY_DEAD)
+	if (visi_info->nonvacuumable_status == ZSNV_RECENTLY_DEAD)
 	{
 		Assert(scan->snapshot->snapshot_type == SNAPSHOT_NON_VACUUMABLE);
 		*tupleIsAlive = false;
 		return;
 	}
 
-	Assert(scan->nonvacuumable_status == ZSNV_NONE);
+	Assert(visi_info->nonvacuumable_status == ZSNV_NONE);
 }
 
 static double
@@ -2363,9 +2373,7 @@ zedstoream_relation_copy_for_cluster(Relation OldHeap, Relation NewHeap,
 		if (old_tid != fetchtid)
 			continue;
 
-		old_undoptr = tid_scan.array_iter.undoslots[
-			tid_scan.array_iter.tid_undoslotnos[tid_scan.array_iter.next_idx - 1]
-			];
+		old_undoptr = tid_scan.array_iter.undoslots[ZSTidScanCurUndoSlotNum(&tid_scan)];
 
 		new_tid = zs_cluster_process_tuple(OldHeap, NewHeap,
 										   old_tid, old_undoptr,
