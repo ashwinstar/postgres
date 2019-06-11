@@ -1276,6 +1276,8 @@ zedstoream_getnextslot_internal(TableScanDesc sscan, ScanDirection direction,
 		else
 		{
 			Assert(scan->state == ZSSCAN_STATE_SCANNING);
+			((ZedstoreTupleTableSlot*)slot)->xmin = scan_proj->tid_scan.xmin;
+			((ZedstoreTupleTableSlot*)slot)->xmin = scan_proj->tid_scan.cmin;
 			slot->tts_tableOid = RelationGetRelid(scan->rs_scan.rs_rd);
 			slot->tts_tid = ItemPointerFromZSTid(this_tid);
 			slot->tts_nvalid = slot->tts_tupleDescriptor->natts;
@@ -1506,6 +1508,8 @@ zedstoream_fetch_row(ZedStoreIndexFetchData *fetch,
 
 	if (found)
 	{
+		((ZedstoreTupleTableSlot*)slot)->xmin = fetch_proj->tid_scan.xmin;
+		((ZedstoreTupleTableSlot*)slot)->cmin = fetch_proj->tid_scan.cmin;
 		slot->tts_tableOid = RelationGetRelid(rel);
 		slot->tts_tid = ItemPointerFromZSTid(tid);
 		slot->tts_nvalid = slot->tts_tupleDescriptor->natts;

@@ -275,6 +275,9 @@ fetch_undo_record:
 static bool
 zs_SatisfiesAny(ZSTidTreeScan *scan, ZSUndoRecPtr item_undoptr)
 {
+	scan->xmin = FrozenTransactionId;
+	scan->cmin = InvalidCommandId;
+
 	return true;
 }
 
@@ -328,7 +331,11 @@ zs_SatisfiesMVCC(ZSTidTreeScan *scan, ZSUndoRecPtr item_undoptr,
 fetch_undo_record:
 	/* If this record is "old", then the record is visible. */
 	if (undo_ptr.counter < recent_oldest_undo.counter)
+	{
+		scan->xmin = FrozenTransactionId;
+		scan->cmin = InvalidCommandId;
 		return true;
+	}
 
 	/* have to fetch the UNDO record */
 	undorec = zsundo_fetch(rel, undo_ptr);
@@ -337,10 +344,12 @@ fetch_undo_record:
 	{
 		/* Inserted tuple */
 		bool		result;
-
 		result = xid_is_visible(snapshot, undorec->xid, undorec->cid, &aborted);
 		if (!result && !aborted)
 			*obsoleting_xid = undorec->xid;
+
+		scan->xmin = undorec->xid;
+		scan->cmin = undorec->cid;
 		return result;
 	}
 	else if (undorec->type == ZSUNDO_TYPE_TUPLE_LOCK)
@@ -353,6 +362,10 @@ fetch_undo_record:
 	else if (undorec->type == ZSUNDO_TYPE_DELETE ||
 			 undorec->type == ZSUNDO_TYPE_UPDATE)
 	{
+		/* TODO: we don't know the transaction id of the inserting transaction */
+		scan->xmin = InvalidTransactionId;
+		scan->cmin = InvalidCommandId;
+
 		if (undorec->type == ZSUNDO_TYPE_UPDATE)
 		{
 			ZSUndoRec_Update *updaterec = (ZSUndoRec_Update *) undorec;
@@ -399,13 +412,20 @@ zs_SatisfiesSelf(ZSTidTreeScan *scan, ZSUndoRecPtr item_undoptr, zstid *next_tid
 
 fetch_undo_record:
 	if (undo_ptr.counter < recent_oldest_undo.counter)
+	{
+		scan->xmin = FrozenTransactionId;
+		scan->cmin = InvalidCommandId;
 		return true;
+	}
 
 	/* have to fetch the UNDO record */
 	undorec = zsundo_fetch(rel, undo_ptr);
 
 	if (undorec->type == ZSUNDO_TYPE_INSERT)
 	{
+		scan->xmin = undorec->xid;
+		scan->cmin = undorec->cid;
+
 		/* Inserted tuple */
 		if (TransactionIdIsCurrentTransactionId(undorec->xid))
 			return true;		/* inserted by me */
@@ -435,6 +455,10 @@ fetch_undo_record:
 			if (next_tid)
 				*next_tid = updaterec->newtid;
 		}
+
+		/* TODO: we don't know the transaction id of the inserting transaction */
+		scan->xmin = InvalidTransactionId;
+		scan->cmin = InvalidCommandId;
 
 		if (TransactionIdIsCurrentTransactionId(undorec->xid))
 		{
@@ -483,7 +507,11 @@ zs_SatisfiesDirty(ZSTidTreeScan *scan, ZSUndoRecPtr item_undoptr, zstid *next_ti
 
 fetch_undo_record:
 	if (undo_ptr.counter < recent_oldest_undo.counter)
+	{
+		scan->xmin = FrozenTransactionId;
+		scan->cmin = InvalidCommandId;
 		return true;
+	}
 
 	/* have to fetch the UNDO record */
 	undorec = zsundo_fetch(rel, undo_ptr);
@@ -491,8 +519,11 @@ fetch_undo_record:
 	if (undorec->type == ZSUNDO_TYPE_INSERT)
 	{
 		ZSUndoRec_Insert *insertrec = (ZSUndoRec_Insert *) undorec;
-
 		snapshot->speculativeToken = insertrec->speculative_token;
+
+		scan->xmin = undorec->xid;
+		scan->cmin = undorec->cid;
+		
 		/* Inserted tuple */
 		if (TransactionIdIsCurrentTransactionId(undorec->xid))
 			return true;		/* inserted by me */
@@ -521,6 +552,10 @@ fetch_undo_record:
 	else if (undorec->type == ZSUNDO_TYPE_DELETE ||
 			 undorec->type == ZSUNDO_TYPE_UPDATE)
 	{
+		/* TODO: we don't know the transaction id of the inserting transaction */
+		scan->xmin = InvalidTransactionId;
+		scan->cmin = InvalidCommandId;
+
 		if (undorec->type == ZSUNDO_TYPE_UPDATE)
 		{
 			ZSUndoRec_Update *updaterec = (ZSUndoRec_Update *) undorec;
@@ -580,13 +615,20 @@ fetch_undo_record:
 
 	/* Is it visible? */
 	if (undo_ptr.counter < recent_oldest_undo.counter)
+	{
+		scan->xmin = FrozenTransactionId;
+		scan->cmin = InvalidCommandId;
 		return true;
+	}
 
 	/* have to fetch the UNDO record */
 	undorec = zsundo_fetch(rel, undo_ptr);
 
 	if (undorec->type == ZSUNDO_TYPE_INSERT)
 	{
+		scan->xmin = undorec->xid;
+		scan->cmin = undorec->cid;
+
 		/* Inserted tuple */
 		if (TransactionIdIsInProgress(undorec->xid))
 			return true;		/* inserter has not committed yet */
@@ -602,6 +644,10 @@ fetch_undo_record:
 	{
 		/* deleted or updated-away tuple */
 		ZSUndoRecPtr	prevptr;
+
+		/* TODO: we don't know the transaction id of the inserting transaction */
+		scan->xmin = InvalidTransactionId;
+		scan->cmin = InvalidCommandId;
 
 		if (TransactionIdIsInProgress(undorec->xid))
 			return true;	/* delete-in-progress */

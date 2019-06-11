@@ -566,7 +566,10 @@ typedef struct ZSTidTreeScan
 	TransactionId undoslot_xmax[ZSBT_MAX_ITEM_UNDO_SLOTS];
 	uint32		undoslot_speculativeToken[ZSBT_MAX_ITEM_UNDO_SLOTS];
 
+	/* TODO: These fields should be stored per UNDO pointer slot in ZSTidItemIterator. */
 	ZSNV_Result nonvacuumable_status;
+	TransactionId xmin;
+	CommandId cmin;
 
 } ZSTidTreeScan;
 
@@ -841,5 +844,14 @@ extern void zspage_delete_page(Relation rel, Buffer buf);
 /* prototypes for functions in zedstore_utils.c */
 extern zs_split_stack *zs_new_split_stack_entry(Buffer buf, Page page);
 extern void zs_apply_split_changes(Relation rel, zs_split_stack *stack);
+
+typedef struct ZedstoreTupleTableSlot
+{
+	TupleTableSlot base;
+	TransactionId xmin;
+	CommandId cmin;
+
+	char	   *data;		/* data for materialized slots */
+} ZedstoreTupleTableSlot;
 
 #endif							/* ZEDSTORE_INTERNAL_H */
