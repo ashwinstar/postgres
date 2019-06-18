@@ -4217,6 +4217,7 @@ CheckForSerializableConflictOut(Relation relation, TransactionId xid, Snapshot s
 	{
 		if (!SxactIsPrepared(sxact))
 		{
+			elog(NOTICE, "CheckForSerializableConflictOut marking DOOMED for xid:%d", sxact->topXid);
 			sxact->flags |= SXACT_FLAG_DOOMED;
 			LWLockRelease(SerializableXactHashLock);
 			return;
@@ -4266,6 +4267,7 @@ CheckForSerializableConflictOut(Relation relation, TransactionId xid, Snapshot s
 	 * Flag the conflict.  But first, if this conflict creates a dangerous
 	 * structure, ereport an error.
 	 */
+	elog(NOTICE, "CheckForSerializableConflictOut calling FlagRWConflict");
 	FlagRWConflict(MySerializableXact, sxact);
 	LWLockRelease(SerializableXactHashLock);
 }
@@ -4363,6 +4365,7 @@ CheckTargetForConflictsIn(PREDICATELOCKTARGETTAG *targettag)
 											 sxact->finishedBefore))
 				&& !RWConflictExists(sxact, MySerializableXact))
 			{
+				elog(NOTICE, "CheckTargetForConflictsIn calling FlagRWConflict");
 				FlagRWConflict(sxact, MySerializableXact);
 			}
 
@@ -4494,6 +4497,7 @@ CheckForSerializableConflictIn(Relation relation, ItemPointer tid, BlockNumber b
 										 relation->rd_id,
 										 ItemPointerGetBlockNumber(tid),
 										 ItemPointerGetOffsetNumber(tid));
+		elog(NOTICE, "CheckTargetForConflictsIn for TID for relation %s", RelationGetRelationName(relation));
 		CheckTargetForConflictsIn(&targettag);
 	}
 
@@ -4503,12 +4507,14 @@ CheckForSerializableConflictIn(Relation relation, ItemPointer tid, BlockNumber b
 										relation->rd_node.dbNode,
 										relation->rd_id,
 										blkno);
+		elog(NOTICE, "CheckTargetForConflictsIn for blockno %d relation %s", blkno, RelationGetRelationName(relation));
 		CheckTargetForConflictsIn(&targettag);
 	}
 
 	SET_PREDICATELOCKTARGETTAG_RELATION(targettag,
 										relation->rd_node.dbNode,
 										relation->rd_id);
+	elog(NOTICE, "CheckTargetForConflictsIn for relation %s", RelationGetRelationName(relation));
 	CheckTargetForConflictsIn(&targettag);
 }
 
@@ -4610,6 +4616,7 @@ CheckTableForSerializableConflictIn(Relation relation)
 			if (predlock->tag.myXact != MySerializableXact
 				&& !RWConflictExists(predlock->tag.myXact, MySerializableXact))
 			{
+				elog(NOTICE, "CheckTableForSerializableConflictIn calling FlagRWConflict");
 				FlagRWConflict(predlock->tag.myXact, MySerializableXact);
 			}
 
@@ -4636,6 +4643,7 @@ FlagRWConflict(SERIALIZABLEXACT *reader, SERIALIZABLEXACT *writer)
 {
 	Assert(reader != writer);
 
+	elog(NOTICE, "Reader %d Writer %d", reader->topXid, writer->topXid);
 	/* First, see if this conflict causes failure. */
 	OnConflict_CheckForSerializationFailure(reader, writer);
 
@@ -4821,6 +4829,7 @@ OnConflict_CheckForSerializationFailure(const SERIALIZABLEXACT *reader,
 					 errdetail_internal("Reason code: Canceled on conflict out to pivot %u, during read.", writer->topXid),
 					 errhint("The transaction might succeed if retried.")));
 		}
+		elog(NOTICE, "OnConflict_CheckForSerializationFailure marking DOOMED for xid:%d", writer->topXid);
 		writer->flags |= SXACT_FLAG_DOOMED;
 	}
 }
@@ -4902,6 +4911,8 @@ PreCommit_CheckForSerializationFailure(void)
 								 errdetail_internal("Reason code: Canceled on commit attempt with conflict in from prepared pivot."),
 								 errhint("The transaction might succeed if retried.")));
 					}
+					elog(NOTICE, "PreCommit_CheckForSerializationFailure marking DOOMED for xid:%d",
+						 nearConflict->sxactOut->topXid);
 					nearConflict->sxactOut->flags |= SXACT_FLAG_DOOMED;
 					break;
 				}

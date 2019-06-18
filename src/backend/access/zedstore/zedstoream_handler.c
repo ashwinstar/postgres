@@ -142,6 +142,10 @@ zedstoream_fetch_row_version(Relation rel,
 		 * call as done in zsbt_get_last_tid() already. Does it matter?
 		 * I'm not sure.
 		 */
+		elog(NOTICE, "Predicate locking TID %d/%d for rel %s",
+			 ItemPointerGetBlockNumber(tid_p),
+			 ItemPointerGetOffsetNumber(tid_p),
+			 RelationGetRelationName(rel));
 		PredicateLockTID(rel, tid_p, snapshot);
 	}
 	ExecMaterializeSlot(slot);
@@ -1438,6 +1442,11 @@ zedstoream_index_fetch_tuple(struct IndexFetchTableData *scan,
 		 * call as done in zsbt_get_last_tid() already. Does it matter?
 		 * I'm not sure.
 		 */
+		elog(NOTICE, "zedstoream_index_fetch_tuple Predicate locking TID %d/%d for rel %s",
+			 ItemPointerGetBlockNumber(tid_p),
+			 ItemPointerGetOffsetNumber(tid_p),
+			 RelationGetRelationName(scan->rel));
+
 		PredicateLockTID(scan->rel, tid_p, snapshot);
 	}
 	return result;
@@ -2770,6 +2779,11 @@ zedstoream_scan_bitmap_next_block(TableScanDesc sscan,
 				 * Acquire predicate lock on all tuples that we scan, even those that are
 				 * not visible to the snapshot.
 				 */
+				elog(NOTICE, "zedstoream_scan_bitmap_next_block Predicate locking TID %d/%d for rel %s",
+					 ItemPointerGetBlockNumber(&itemptr),
+					 ItemPointerGetOffsetNumber(&itemptr),
+					 RelationGetRelationName(scan->rs_scan.rs_rd));
+
 				PredicateLockTID(scan->rs_scan.rs_rd, &itemptr, scan->rs_scan.rs_snapshot);
 
 				noff++;
@@ -2793,6 +2807,11 @@ zedstoream_scan_bitmap_next_block(TableScanDesc sscan,
 		 * call as done in zsbt_get_last_tid() already. Does it matter?
 		 * I'm not sure.
 		 */
+		elog(NOTICE, "2 zedstoream_scan_bitmap_next_block Predicate locking TID %d/%d for rel %s",
+			 ItemPointerGetBlockNumber(&itemptr),
+			 ItemPointerGetOffsetNumber(&itemptr),
+			 RelationGetRelationName(scan->rs_scan.rs_rd));
+
 		PredicateLockTID(scan->rs_scan.rs_rd, &itemptr, scan->rs_scan.rs_snapshot);
 	}
 	zsbt_tid_end_scan(&tid_scan);
