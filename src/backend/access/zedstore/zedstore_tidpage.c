@@ -186,12 +186,14 @@ zsbt_tid_scan_extract_array(ZSTidTreeScan *scan, ZSTidArrayItem *aitem)
 	{
 		ZSUndoRecPtr undoptr = scan->array_iter.undoslots[i];
 		TransactionId obsoleting_xid;
+		bool delete_in_progress;
 
 		scan->array_iter.undoslot_visibility[i] = InvalidUndoSlotVisibility;
 
 		slots_visible[i] = zs_SatisfiesVisibility(scan, undoptr, &obsoleting_xid,
-												  NULL, &scan->array_iter.undoslot_visibility[i]);
-		if (!slots_visible[i] && scan->serializable && TransactionIdIsValid(obsoleting_xid))
+												  NULL, &scan->array_iter.undoslot_visibility[i],
+												  &delete_in_progress);
+		if ((!slots_visible[i] || delete_in_progress) && scan->serializable && TransactionIdIsValid(obsoleting_xid))
 			CheckForSerializableConflictOut(scan->rel, obsoleting_xid, scan->snapshot);
 	}
 
@@ -583,7 +585,7 @@ zsbt_tid_delete(Relation rel, zstid tid,
 			scan.snapshot = crosscheck;
 			scan.recent_oldest_undo = recent_oldest_undo;
 
-			if (!zs_SatisfiesVisibility(&scan, item_undoptr, &obsoleting_xid, NULL, &visi_info))
+			if (!zs_SatisfiesVisibility(&scan, item_undoptr, &obsoleting_xid, NULL, &visi_info, NULL))
 			{
 				UnlockReleaseBuffer(buf);
 				/* FIXME: We should fill TM_FailureData *hufd correctly */
@@ -643,7 +645,7 @@ zsbt_find_latest_tid(Relation rel, zstid *tid, Snapshot snapshot)
 			scan.recent_oldest_undo = recent_oldest_undo;
 
 			if (zs_SatisfiesVisibility(&scan, item_undoptr,
-									   &obsoleting_xid, &next_tid, &visi_info))
+									   &obsoleting_xid, &next_tid, &visi_info, NULL))
 			{
 				*tid = curr_tid;
 			}
@@ -757,7 +759,7 @@ zsbt_tid_update_lock_old(Relation rel, zstid otid,
 		scan.snapshot = crosscheck;
 		scan.recent_oldest_undo = recent_oldest_undo;
 
-		if (!zs_SatisfiesVisibility(&scan, olditem_undoptr, &obsoleting_xid, NULL, &visi_info))
+		if (!zs_SatisfiesVisibility(&scan, olditem_undoptr, &obsoleting_xid, NULL, &visi_info, NULL))
 		{
 			UnlockReleaseBuffer(buf);
 			/* FIXME: We should fill TM_FailureData *hufd correctly */

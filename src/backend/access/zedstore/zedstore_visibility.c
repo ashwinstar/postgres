@@ -364,7 +364,7 @@ xid_is_visible(Snapshot snapshot, TransactionId xid, CommandId cid, bool *aborte
 static bool
 zs_SatisfiesMVCC(ZSTidTreeScan *scan, ZSUndoRecPtr item_undoptr,
 				 TransactionId *obsoleting_xid, zstid *next_tid,
-				 ZSUndoSlotVisibility *visi_info)
+				 ZSUndoSlotVisibility *visi_info, bool *delete_in_progress)
 {
 	Relation	rel = scan->rel;
 	Snapshot	snapshot = scan->snapshot;
@@ -375,6 +375,8 @@ zs_SatisfiesMVCC(ZSTidTreeScan *scan, ZSUndoRecPtr item_undoptr,
 
 	Assert (snapshot->snapshot_type == SNAPSHOT_MVCC);
 
+	if (delete_in_progress)
+		*delete_in_progress = false;
 	undo_ptr = item_undoptr;
 
 fetch_undo_record:
@@ -431,7 +433,11 @@ fetch_undo_record:
 		else
 		{
 			if (!aborted)
+			{
 				*obsoleting_xid = undorec->xid;
+				if (delete_in_progress)
+					*delete_in_progress = true;
+			}
 			undo_ptr = undorec->prevundorec;
 			goto fetch_undo_record;
 		}
@@ -755,7 +761,7 @@ fetch_undo_record:
 bool
 zs_SatisfiesVisibility(ZSTidTreeScan *scan, ZSUndoRecPtr item_undoptr,
 					   TransactionId *obsoleting_xid, zstid *next_tid,
-					   ZSUndoSlotVisibility *visi_info)
+					   ZSUndoSlotVisibility *visi_info, bool *delete_in_progress)
 {
 	ZSUndoRecPtr undo_ptr;
 
@@ -785,7 +791,7 @@ zs_SatisfiesVisibility(ZSTidTreeScan *scan, ZSUndoRecPtr item_undoptr,
 	switch (scan->snapshot->snapshot_type)
 	{
 		case SNAPSHOT_MVCC:
-			return zs_SatisfiesMVCC(scan, item_undoptr, obsoleting_xid, next_tid, visi_info);
+			return zs_SatisfiesMVCC(scan, item_undoptr, obsoleting_xid, next_tid, visi_info, delete_in_progress);
 
 		case SNAPSHOT_SELF:
 			return zs_SatisfiesSelf(scan, item_undoptr, next_tid, visi_info);

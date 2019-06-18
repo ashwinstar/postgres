@@ -875,7 +875,8 @@ extern TM_Result zs_SatisfiesUpdate(Relation rel, Snapshot snapshot,
 									ZSUndoSlotVisibility *visi_info);
 extern bool zs_SatisfiesVisibility(ZSTidTreeScan *scan, ZSUndoRecPtr item_undoptr,
 								   TransactionId *obsoleting_xid, zstid *next_tid,
-								   ZSUndoSlotVisibility *visi_info);
+								   ZSUndoSlotVisibility *visi_info,
+								   bool *delete_in_progress);
 
 /* prototypes for functions in zedstore_toast.c */
 extern Datum zedstore_toast_datum(Relation rel, AttrNumber attno, Datum value, zstid tid);
