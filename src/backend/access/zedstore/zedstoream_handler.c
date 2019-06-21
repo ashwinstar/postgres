@@ -541,8 +541,22 @@ retry:
 		 */
 		 if (mode == LockTupleKeyShare && locked_something)
 			 return TM_Ok;
-		 else
-			 return TM_Invisible;
+
+		 /*
+		  * If tuple was inserted by our own transaction, we have
+		  * to check cmin against cid: cmin >= current CID means
+		  * our command cannot see the tuple, so we should ignore
+		  * it.
+		  */
+		 if (TransactionIdIsCurrentTransactionId(visi_info.xmin) &&
+			 visi_info.cmin >= cid)
+		 {
+			 tmfd->xmax = visi_info.xmin;
+			 tmfd->cmax = visi_info.cmin;
+			 return TM_SelfModified;
+		 }
+
+		 return TM_Invisible;
 	}
 	else if (result == TM_Updated ||
 			 (result == TM_SelfModified && tmfd->cmax == cid))
