@@ -201,7 +201,7 @@ analyze_rel(Oid relid, RangeVar *relation,
 		/* Regular table, so we'll use the regular row acquisition function */
 		acquirefunc = acquire_sample_rows;
 		/* Also get regular table's size */
-		relpages = RelationGetNumberOfBlocks(onerel);
+		relpages = RelationGetNumberOfLogicalBlocks(onerel);
 	}
 	else if (onerel->rd_rel->relkind == RELKIND_FOREIGN_TABLE)
 	{
@@ -1020,7 +1020,7 @@ acquire_sample_rows(Relation onerel, int elevel,
 
 	Assert(targrows > 0);
 
-	totalblocks = RelationGetNumberOfBlocks(onerel);
+	totalblocks = RelationGetNumberOfLogicalBlocks(onerel);
 
 	/* Need a cutoff xmin for HeapTupleSatisfiesVacuum */
 	OldestXmin = GetOldestXmin(onerel, PROCARRAY_FLAGS_VACUUM);

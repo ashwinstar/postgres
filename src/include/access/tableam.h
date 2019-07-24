@@ -586,6 +586,7 @@ typedef struct TableAmRoutine
 	 */
 	uint64		(*relation_size) (Relation rel, ForkNumber forkNumber);
 
+	uint64		(*relation_logical_size) (Relation rel, ForkNumber forkNumber);
 
 	/*
 	 * This callback should return true if the relation requires a TOAST table
@@ -1633,6 +1634,12 @@ static inline uint64
 table_relation_size(Relation rel, ForkNumber forkNumber)
 {
 	return rel->rd_tableam->relation_size(rel, forkNumber);
+}
+
+static inline uint64
+table_relation_logical_size(Relation rel, ForkNumber forkNumber)
+{
+	return rel->rd_tableam->relation_logical_size(rel, forkNumber);
 }
 
 /*

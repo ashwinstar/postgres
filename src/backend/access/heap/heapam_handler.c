@@ -2537,6 +2537,7 @@ static const TableAmRoutine heapam_methods = {
 	.index_validate_scan = heapam_index_validate_scan,
 
 	.relation_size = table_block_relation_size,
+	.relation_logical_size = table_block_relation_size,
 	.relation_needs_toast_table = heapam_relation_needs_toast_table,
 
 	.relation_estimate_size = heapam_estimate_rel_size,

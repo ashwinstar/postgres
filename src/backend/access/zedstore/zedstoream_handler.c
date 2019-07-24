@@ -2608,11 +2608,23 @@ zedstoream_scan_analyze_next_tuple(TableScanDesc sscan, TransactionId OldestXmin
 static uint64
 zedstoream_relation_size(Relation rel, ForkNumber forkNumber)
 {
+
 	uint64		nblocks = 0;
 
 	/* Open it at the smgr level if not already done */
 	RelationOpenSmgr(rel);
 	nblocks = smgrnblocks(rel->rd_smgr, MAIN_FORKNUM);
+	return nblocks * BLCKSZ;
+}
+
+static uint64
+zedstoream_relation_logical_size(Relation rel, ForkNumber forkNumber)
+{
+	zstid tid;
+	uint64 nblocks = 0;
+
+	tid = zsbt_get_last_tid(rel);
+	nblocks = ZSTidGetBlockNumber(tid) + 1;
 	return nblocks * BLCKSZ;
 }
 
@@ -2648,7 +2660,7 @@ zedstoream_relation_estimate_size(Relation rel, int32 *attr_widths,
 	double		density;
 
 	/* it has storage, ok to call the smgr */
-	curpages = RelationGetNumberOfBlocks(rel);
+	curpages = RelationGetNumberOfLogicalBlocks(rel);
 
 	/* coerce values in pg_class to more desirable types */
 	relpages = (BlockNumber) rel->rd_rel->relpages;
@@ -3132,6 +3144,7 @@ static const TableAmRoutine zedstoream_methods = {
 	.index_validate_scan = zedstoream_index_validate_scan,
 
 	.relation_size = zedstoream_relation_size,
+	.relation_logical_size = zedstoream_relation_logical_size,
 	.relation_needs_toast_table = zedstoream_relation_needs_toast_table,
 	.relation_estimate_size = zedstoream_relation_estimate_size,
 
