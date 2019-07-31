@@ -31,6 +31,7 @@
 #include "access/slru.h"
 #include "access/subtrans.h"
 #include "access/transam.h"
+#include "access/xact.h"
 #include "pg_trace.h"
 #include "utils/snapmgr.h"
 
@@ -154,6 +155,9 @@ SubTransGetTopmostTransaction(TransactionId xid)
 
 	/* Can't ask about stuff that might not be around anymore */
 	Assert(TransactionIdFollowsOrEquals(xid, TransactionXmin));
+
+	if (TransactionIdEquals(xid, GetTopTransactionIdIfAny()))
+		return xid;
 
 	while (TransactionIdIsValid(parentXid))
 	{

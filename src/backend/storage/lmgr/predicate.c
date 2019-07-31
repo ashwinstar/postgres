@@ -2555,22 +2555,9 @@ PredicateLockTID(Relation relation, ItemPointer tid, Snapshot snapshot,
 	 */
 	if (relation->rd_index == NULL)
 	{
-		TransactionId myxid;
-
-		myxid = GetTopTransactionIdIfAny();
-		if (TransactionIdIsValid(myxid))
-		{
-			if (TransactionIdFollowsOrEquals(insert_xid, TransactionXmin))
-			{
-				TransactionId xid = SubTransGetTopmostTransaction(insert_xid);
-
-				if (TransactionIdEquals(xid, myxid))
-				{
-					/* We wrote it; we already have a write lock. */
-					return;
-				}
-			}
-		}
+		/* if we wrote it; we already have a write lock. */
+		if (TransactionIdIsCurrentTransactionId(insert_xid))
+			return;
 	}
 
 	/*
